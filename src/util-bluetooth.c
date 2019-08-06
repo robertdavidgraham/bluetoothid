@@ -31,6 +31,45 @@
 #define SOL_BLUETOOTH	274
 #endif
 
+/* HCI device flags */
+enum {
+	HCI_UP,
+	HCI_INIT,
+	HCI_RUNNING,
+
+	HCI_PSCAN,
+	HCI_ISCAN,
+	HCI_AUTH,
+	HCI_ENCRYPT,
+	HCI_INQUIRY,
+
+	HCI_RAW,
+};
+
+typedef struct {
+	unsigned char b[6];
+} __attribute__((packed)) bdaddr_t;
+
+/* BD Address type */
+#define BDADDR_BREDR           0x00
+#define BDADDR_LE_PUBLIC       0x01
+#define BDADDR_LE_RANDOM       0x02
+
+#define BDADDR_ANY   (&(bdaddr_t) {{0, 0, 0, 0, 0, 0}})
+#define BDADDR_ALL   (&(bdaddr_t) {{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}})
+#define BDADDR_LOCAL (&(bdaddr_t) {{0, 0, 0, 0xff, 0xff, 0xff}})
+
+/* Copy, swap, convert BD Address */
+static inline int bacmp(const bdaddr_t *ba1, const bdaddr_t *ba2)
+{
+	return memcmp(ba1, ba2, sizeof(bdaddr_t));
+}
+static inline void bacpy(bdaddr_t *dst, const bdaddr_t *src)
+{
+	memcpy(dst, src, sizeof(bdaddr_t));
+}
+
+
 struct sockaddr_hci {
 	sa_family_t	hci_family;
 	unsigned short	hci_dev;
@@ -62,6 +101,42 @@ failed:
 	errno = err;
 
 	return -1;
+}
+
+static int __other_bdaddr(int dd, int dev_id, long arg)
+{
+	struct hci_dev_info di = { .dev_id = dev_id };
+
+	if (ioctl(dd, HCIGETDEVINFO, (void *) &di))
+		return 0;
+
+	if (hci_test_bit(HCI_RAW, &di.flags))
+		return 0;
+
+	return bacmp((bdaddr_t *) arg, &di.bdaddr);
+}
+
+static int __same_bdaddr(int dd, int dev_id, long arg)
+{
+	struct hci_dev_info di = { .dev_id = dev_id };
+
+	if (ioctl(dd, HCIGETDEVINFO, (void *) &di))
+		return 0;
+
+	return !bacmp((bdaddr_t *) arg, &di.bdaddr);
+}
+
+int hci_get_route(const unsigned char *bdaddr)
+{
+	int dev_id;
+
+	dev_id = hci_for_each_dev(HCI_UP, __other_bdaddr,
+				(long) (bdaddr ? bdaddr : BDADDR_ANY));
+	if (dev_id < 0)
+		dev_id = hci_for_each_dev(HCI_UP, __same_bdaddr,
+				(long) (bdaddr ? bdaddr : BDADDR_ANY));
+
+	return dev_id;
 }
 
 int main(int argc, char *argv[])

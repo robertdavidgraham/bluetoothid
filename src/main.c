@@ -290,6 +290,14 @@ static int check_report_filter(uint8_t procedure, le_advertising_info *info)
 
 #define NEXT_BYTE(buf, offset, length) ((((offset)+1) < length) ? (buf)[(offset)++] : (-1))
 
+static void hexdump(const unsigned char *buf, size_t offset, size_t length)
+{
+	size_t i;
+	for (i=offset; i<length; i++) {
+		printf("%02x ", buf[i]);
+	}
+	printf("\n");
+}
 static void
 decode_packet(const unsigned char *buf, size_t length)
 {
@@ -298,13 +306,42 @@ decode_packet(const unsigned char *buf, size_t length)
 
 	switch (NEXT_BYTE(buf, offset, length)) {
 	case 0x04: /* HCI_EVENT_PKT */
-		for (i=offset; i<length; i++) {
-			printf("%02x ", buf[i]);
+		i = 0;
+		unsigned n;
+		size_t len;
+		unsigned char macaddr[6];
+
+		n = NEXT_BYTE(buf, offset, length);
+		if (n != 0x3e) {
+			hexdump(buf, 0, length);
+			return;
 		}
-		printf("\n");
+		len = NEXT_BYTE(buf, offset, length);
+		if (length > offset + len) {
+			printf("length problem\n");
+			length = offset + len;
+		}
+		n = NEXT_BYTE(buf, offset, length);
+		if (n != 0x02) {
+			hexdump(buf, 0, length);
+			return;
+		}
+		n = NEXT_BYTE(buf, offset, length);
+		if (n != 0x01) {
+			hexdump(buf, 0, length);
+			return;
+		}
+		n = NEXT_BYTE(buf, offset, length);
+		if (n != 0x04 && n != 0x00) {
+			hexdump(buf, 0, length);
+			return;
+		}
+		printf("-- ");
+		hexdump(buf, offset, length);
 		break;
 	default:
-		printf("unknown packet\n");
+		printf("UNKOWN ");
+		hexdump(buf, 0, length);
 	}
 }
 static int print_advertising_devices(int dd, uint8_t filter_type)
