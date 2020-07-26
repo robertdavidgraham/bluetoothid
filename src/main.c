@@ -20,8 +20,11 @@ struct device_version
 };
 
 int signal_received = 0;
+int global_fd = -1;
 static void sigint_handler(int sig)
 {
+	if (global_fd != -1)
+		close(global_fd);
 	signal_received = sig;
 }
 
@@ -344,7 +347,8 @@ decode_packet(const unsigned char *buf, size_t length)
 		hexdump(buf, 0, length);
 	}
 }
-static int print_advertising_devices(int dd, uint8_t filter_type)
+
+static int print_advertising_devices(int dd, uint8_t filter_type, const char *filename)
 {
 	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
 	struct hci_filter nf, of;
@@ -372,6 +376,14 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 	sa.sa_handler = sigint_handler;
 	sigaction(SIGINT, &sa, NULL);
 
+	unsigned count = 0;
+	FILE *fp;
+	fp = fopen(filename, "wb");
+	if (fp == NULL) {
+		perror(filename);
+		exit(1);
+	}
+	global_fd = dd;
 	while (1) {
 		evt_le_meta_event *meta;
 		le_advertising_info *info;
@@ -388,7 +400,14 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 			goto done;
 		}
 
-		decode_packet(buf, len);
+		if (count % 0xFF == 0)
+		fprintf(stderr, "%9u\b\b\b\b\b\b\b\b\b", count);
+		fflush(stderr);
+		count++;
+		//decode_packet(buf, len);
+		fwrite(&len, 1, sizeof(len), fp);
+		fwrite(buf, 1, len, fp);
+		continue;
 
 		ptr = buf + (1 + HCI_EVENT_HDR_SIZE);
 		len -= (1 + HCI_EVENT_HDR_SIZE);
@@ -457,6 +476,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[-] no bluetooth devices available. Hint: hciconfig hci0 up\n");
         exit(1);
     }
+	fprintf(stderr, "[+] hci%d: active\n", dev_id);
 
 	/* Open the device that we are going to use*/
     dd = hci_open_dev(dev_id);
@@ -471,7 +491,7 @@ int main(int argc, char *argv[])
 	uint8_t filter_policy = 0x00;
 	uint16_t interval = htobs(0x0010);
 	uint16_t window = htobs(0x0010);
-	uint8_t filter_dup = 0; /* We want to see duplicates */
+	uint8_t filter_dup = 1; /* We want to see duplicates */
 
 	err = hci_le_set_scan_parameters(dd, scan_type, interval, window,
 						own_type, filter_policy, 1000);
@@ -488,7 +508,7 @@ int main(int argc, char *argv[])
 
 	printf("LE Scan ...\n");
 
-	err = print_advertising_devices(dd, filter_type);
+	err = print_advertising_devices(dd, filter_type, argv[1]);
 	if (err < 0) {
 		perror("Could not receive advertising events");
 		exit(1);
